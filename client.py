@@ -3,92 +3,98 @@ import socket
 import tkinter as tk
 import json
 
-document = ""
-version = 0
-client_socket = None
+class Client(object):
 
-def receive_file():
-    global client_socket
-    # Receive response in chunks and concatenate
-    response = b""
-    while True:
-        chunk = client_socket.recv(1460)
-        if not chunk:
-            break   
-        response += chunk
-    client_socket.close()
+    def __init__(self, host, port):
+        # Create a TCP socket
+        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.client_socket.connect((host, port))
 
-    # Decode and update current document version
-    global document
-    global version
-    document = response.decode("utf-8", errors="ignore")
-    version += 1 # TODO: obtain version from the received data 
+        self.doc = ""
+        self.doc_version = 0
 
-def display_file(text_widget):
-    # clear the tkinter window, show contents of the doc
-    global document
-    text_widget.delete("1.0", tk.END)
-    text_widget.insert("1.0", "".join(document))
+    def receive_file(self):
+        # Receive response in chunks and concatenate
+        response = b""
+        while True:
+            chunk = self.client_socket.recv(1460)
+            if not chunk:
+                break   
+            response += chunk
 
-def write_file(filename="client_file.txt"):
-    with open(filename, 'w') as f:
-        global document
-        # writes the lines into a file on disk 
-        f.writelines(document)
+        # Decode and update current document version
+        self.doc = response.decode("utf-8", errors="ignore")
+        self.doc_version += 1 # TODO: obtain version from the received data 
 
-def open_file(filename="client_file.txt"):
-    try:
-        with open(filename, 'r') as f:
-            global document
-            # obtains a list of lines as strings in a file (includes terminating \n)
-            document = f.readlines()
-            print(document)
-    except FileNotFoundError:
-        print("File not found...")
+    def display_file(self, text_widget):
+        # clear the tkinter window, show contents of the doc
+        text_widget.delete("1.0", tk.END)
+        text_widget.insert("1.0", "".join(self.doc))
 
-def key_handler(event, text_widget):
+    def write_file(self, filename="client_file.txt"):
+        with open(filename, 'w') as f:
+            # writes the lines into a file on disk 
+            f.writelines(self.doc)
 
-    if event.char and len(event.char) == 1:
-        # get current index of the insert cursor in the window
-        line, idx = text_widget.index(tk.INSERT).split('.')
+    def open_file(self, filename="client_file.txt"):
+        try:
+            with open(filename, 'r') as f:
+                # obtains a list of lines as strings in a file (includes terminating \n)
+                self.doc = f.readlines()
+        except FileNotFoundError:
+            print("File not found...")
 
-        # construct operation packet
-        op = {
-            "opcode": "INSERT",
-            "line": line,
-            "idx": idx,
-            "char": event.keysym
-        }
+class GUI(object):
 
-        # send operation through the socket
-        global client_socket
-        json_str = json.dumps(op) + "\n" # adding terminating character
-        client_socket.sendall(json_str.encode())
+    def __init__(self, client):
+        
+        self.client = client
+        # Gemini was used to develop this GUI code
+        self.window = tk.Tk()
+        self.window.title("Live Text Editor")
+        self.window.geometry("800x600")
 
-def start_gui():
-    # Gemini was used to develop this GUI code
-    window = tk.Tk()
-    window.title("Live Text Editor")
-    window.geometry("800x600")
+        # Add save file button
+        self.save_button = tk.Button(self.window, text="Save", command=client.write_file)
+        self.save_button.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
 
-    # Add save file button
-    save_button = tk.Button(window, text="Save", command=write_file)
-    save_button.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+        # adding text editing space
+        self.text_widget = tk.Text(self.window)
+        self.text_widget.pack(expand=True, fill="both")
 
-    # adding text editing space
-    text_widget = tk.Text(window)
-    text_widget.pack(expand=True, fill="both")
+        # bind key press to event handler
+        self.text_widget.bind("<Key>", self.key_handler)
+        # start the GUI update
+    def run(self):
+        self.window.mainloop()
 
-    # bind key press to event handler
-    text_widget.bind("<Key>", lambda e: key_handler(e, text_widget))
-    # start the GUI update
-    window.mainloop()
+    def get_text_widget(self):
+        return self.text_widget
+    
+    def key_handler(self, event):
+
+        if event.char and len(event.char) == 1:
+            # get current index of the insert cursor in the window
+            global text_widget
+            line, idx = self.text_widget.index(tk.INSERT).split('.')
+
+            # construct operation packet
+            op = {
+                "opcode": "INSERT",
+                "line": line,
+                "idx": idx,
+                "char": event.keysym
+            }
+
+            # send operation through the socket
+            global client_socket
+            json_str = json.dumps(op) + "\n" # adding terminating character
+            client_socket.sendall(json_str.encode())
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("host", help="Server IP address")
     parser.add_argument("port", help="Server listener port")
-    parser.add_argument("filename", help="Filepath of file to request")
 
     args = parser.parse_args()
 
@@ -96,9 +102,11 @@ def main():
     HOST = args.host
     PORT = int(args.port)
 
-    # Create a TCP socket
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect((HOST, PORT))
+    client = Client(HOST, PORT)
+    screen = GUI(client)
+    client.open_file()
+    client.display_file(screen.get_text_widget())
+    screen.run()
 
 if __name__ == "__main__":
-    start_gui()
+    main()
