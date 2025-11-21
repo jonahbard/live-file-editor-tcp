@@ -90,7 +90,7 @@ class Server(object):
         self.client_cursors[client_id] = str(line+1) + "." + str(0)
         for key in self.client_cursors.keys():
                 l, i = self.client_cursors[key].split(".")
-                if int(l) > line+1:
+                if int(l) > line:
                     self.client_cursors[key] = str(int(l)+1) + "." + str(i) 
 
     def remove_char(self, line, idx, client_id):

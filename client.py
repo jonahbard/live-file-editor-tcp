@@ -92,7 +92,7 @@ class GUI(object):
     def key_handler(self, event):
         # get current index of the insert cursor in the window
         line, idx = self.text_widget.index(tk.INSERT).split('.')
-        if event.char and len(event.char) == 1:
+        if event.char and len(event.char) == 1 or event.keysym.lower() in ["backspace", "space", "delete", "return"]:
             # construct operation packet
             op = {
                 "opcode": "INSERT",
