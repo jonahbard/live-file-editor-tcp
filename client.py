@@ -2,6 +2,7 @@ import argparse
 import socket
 import tkinter as tk
 import json
+import threading 
 
 DELIMITER = "\u001D"
 
@@ -9,32 +10,33 @@ class Client(object):
 
     def __init__(self, host, port):
         # Create a TCP socket
-        # self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # self.client_socket.connect((host, port))
+        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.client_socket.connect((host, port))
 
-        self.doc = None
+        self.doc = []
         self.doc_version = 0
+
+        self.lock = threading.Lock()
 
     def receive_file(self):
         # Receive response in chunks and concatenate
-        response = b""
         while True:
-            chunk = self.client_socket.recv(1460)
-            if not chunk:
-                break   
-            response += chunk
-
-        # Decode and update current document version
-        data = response.decode("utf-8", errors="ignore").split(DELIMITER)
-        self.doc_version = int(data[0].strip("VERSION: "))
-        self.doc = data[1:]
-        self.display_file()
+            chunk = self.client_socket.recv(4096)
+            if  chunk:
+                # Decode and update current document version
+                print("Received document...")
+                data = chunk.decode("utf-8", errors="ignore").split(DELIMITER)
+                with self.lock:
+                    self.doc_version = int(data[0].strip("VERSION: "))
+                    self.doc = data[1:]
+                chunk = None
 
     def display_file(self):
         # clear the tkinter window, show contents of the doc
-        self.text_widget.delete("1.0", tk.END)
-        self.text_widget.insert("1.0", "".join(self.doc))
-        print("displayed file")
+        with self.lock:
+            self.text_widget.delete("1.0", tk.END)
+            self.text_widget.insert("1.0", "".join(self.doc))
+        self.text_widget.after(100, self.display_file)
 
     def write_file(self, filename="client_file.txt"):
         with open(filename, 'w') as f:
@@ -46,7 +48,6 @@ class Client(object):
             with open(filename, 'r') as f:
                 # obtains a list of lines as strings in a file (includes terminating \n)
                 self.doc = f.readlines()
-                self.display_file()
         except FileNotFoundError:
             print("File not found...")
 
@@ -72,6 +73,8 @@ class GUI(object):
 
         # bind key press to event handler
         self.text_widget.bind("<Key>", self.key_handler)
+
+        self.client.display_file()
 
 
     def run(self):
@@ -111,8 +114,18 @@ def main():
 
     client = Client(HOST, PORT)
     screen = GUI(client)
-    client.open_file()
-    screen.run()
+
+    # start listener thread for server responses and gui thread
+    try:
+        receiver_thread = threading.Thread(target=client.receive_file, daemon=True, name="receiver thread")
+        receiver_thread.start()
+        screen.run()
+    except KeyboardInterrupt:
+        print("\nShutting down client...")
+    finally:
+        client.client_socket.close()
+        print("Done.")
+
     
 
 if __name__ == "__main__":
