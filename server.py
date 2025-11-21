@@ -4,6 +4,7 @@ import argparse
 from queue import Queue
 import time 
 import json
+import random
 
 DELIMITER = "\u001D"
 TIMEOUT = 60 # SECONDS
@@ -33,8 +34,12 @@ class Server(object):
             # get ip and port
             client_socket, addr = self.server_socket.accept()
             # store client data in dictionary
-            self.clients[addr[1]] = client_socket
-            self.client_cursors[addr[1]] = "1.0"
+            # generate and send client id to client on connection
+            client_id = random.randint(1, 60000)
+            data = f"ID: {client_id}" + DELIMITER
+            client_socket.sendall(data.encode())
+            self.clients[client_id] = client_socket
+            self.client_cursors[client_id] = "1.0"
 
             # start new thread for newly connected client
             thread = threading.Thread(target=self.connection_handler, args=(client_socket, addr))

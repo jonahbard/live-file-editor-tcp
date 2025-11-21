@@ -12,7 +12,13 @@ class Client(object):
         # Create a TCP socket
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect((host, port))
-        self.id = self.client_socket.getsockname()[1]
+        
+        for i in range(10):
+            data = self.client_socket.recv(4096)
+            if data:
+                data = data.decode("utf-8", errors="ignore").split(DELIMITER)
+                self.id = int(data[0].strip("ID: "))
+                break
 
         self.doc = []
         self.doc_version = 0
