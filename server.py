@@ -15,7 +15,8 @@ class Server(object):
         # define instance vars
         self.doc = [""] * 10 # 200 empty lines to start
         self.doc_ver = 0
-        self.clients = []
+        self.clients = {}
+        self.client_cursors = {}
         self.data_lock = threading.Lock()
         self.op_queue = Queue()
 
@@ -30,11 +31,11 @@ class Server(object):
         # listen for new connections
         while True:
             # get ip and port
-            client_socket, addr = self.server_socket.accept() 
+            client_socket, addr = self.server_socket.accept()
+            # store client data in dictionary
+            self.clients[addr[1]] = client_socket
+            self.client_cursors[addr[1]] = "1.0"
 
-            # store client data in list
-            self.clients.append((client_socket, addr))
-            
             # start new thread for newly connected client
             thread = threading.Thread(target=self.connection_handler, args=(client_socket, addr))
             thread.start()
@@ -70,50 +71,81 @@ class Server(object):
         except FileNotFoundError:
             print("File not found...")
 
-    def send_file(self, client_socket):
-        header = f"VERSION: {self.doc_ver}"
+    def send_file(self, client_id):
+        header = f"VERSION: {self.doc_ver}" + DELIMITER + f"CURSOR: {self.client_cursors[client_id]}"
         content = DELIMITER.join(self.doc)
         data = header + DELIMITER + content
-        client_socket.sendall(data.encode())
+        self.clients[client_id].sendall(data.encode())
 
     def insert_char(self, line, idx, char):
         self.doc[line - 1] = self.doc[line - 1][:idx] + char + self.doc[line - 1][idx:]
 
     def do_enter(self, line, idx):
         self.doc.insert(line, "") # insert new line
+        self.doc[line] = self.doc[line-1][idx:]
         self.doc[line-1] = self.doc[line-1][:idx] + "\n" # add newline char to current line and split it
-        self.doc[line] = self.doc[line-1][idx + 1:]
-    
+
     def remove_char(self, line, idx):
         if idx < 0:
+            if line == 1:
+                return
             self.doc.pop(line-1) # remove current line
             self.doc[line-2] = self.doc[line-2][:-1] # remove newline char on prev line
             return
         self.doc[line - 1] = self.doc[line - 1][:idx] + self.doc[line - 1][idx + 1:]
 
     def process_op(self, op):
+        opcode = op["opcode"]
+        client_id = op["id"]
+        ver = int(op["ver"])
         line = int(op["line"])
         idx = int(op["idx"])
-        print("Inserting character into the doc...")
-        if op["char"].lower() not in ["return", "backspace", "space"]:
-            # insert normal characters
-            self.insert_char(line, idx, op["char"])
-        if op["char"].lower() == "return":
-            # insert newline character
-            self.do_enter(line, idx)
-        if op["char"].lower() == "space":
-            # insert space
-            self.insert_char(line, idx, " ")
-        if op["char"].lower() == "backspace":
-            self.remove_char(line, idx-1)
+        if opcode == "INSERT":
+            print("Inserting character into the doc...")
+            if op["char"].lower() not in ["return", "backspace", "space"]:
+                # insert normal characters
+                self.insert_char(line, idx, op["char"])
+                self.client_cursors[client_id] = str(line) + "." + str(idx+1)
+            if op["char"].lower() == "return":
+                # insert newline character
+                self.do_enter(line, idx)
+                self.client_cursors[client_id] = str(line+1) + "." + str(0)
+            if op["char"].lower() == "space":
+                # insert space
+                self.insert_char(line, idx, " ")
+                self.client_cursors[client_id] = str(line) + "." + str(idx+1)
+            if op["char"].lower() == "backspace":
+                self.remove_char(line, idx-1)
+                if idx > 0:
+                    idx -= 1
+                self.client_cursors[client_id] = str(line) + "." + str(idx)
+            # increment version
+            self.doc_ver += 1
+            # send updated file to every client
+            for client_id in self.clients.keys():
+                print("Sending file to clients...")
+                self.send_file(client_id)
 
-        # increment version
-        self.doc_ver += 1
-
-        # send updated file to every client
-        for (socket, addr) in self.clients:
-            print("Sending file to clients...")
-            self.send_file(socket)
+        elif opcode == "CURSOR":
+            match op["char"].lower():
+                case "left":
+                    if idx > 0:
+                        idx -= 1
+                    self.client_cursors[client_id] = str(line) + "." + str(idx)
+                case "right":
+                    if idx < len(self.doc[line-1]):
+                        idx += 1
+                    self.client_cursors[client_id] = str(line) + "." + str(idx)
+                case "up":
+                    if line > 1:
+                        line -= 1
+                    self.client_cursors[client_id] = str(line) + "." + str(idx)
+                case "down":
+                    if line < len(self.doc):
+                        line += 1
+                    self.client_cursors[client_id] = str(line) + "." + str(idx)
+            print("Sending cursor status to client...")
+            self.send_file(client_id)
 
     def doc_updater(self):
         while True:
