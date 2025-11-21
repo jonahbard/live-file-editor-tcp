@@ -3,14 +3,16 @@ import socket
 import tkinter as tk
 import json
 
+DELIMITER = "\u001D"
+
 class Client(object):
 
     def __init__(self, host, port):
         # Create a TCP socket
-        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client_socket.connect((host, port))
+        # self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # self.client_socket.connect((host, port))
 
-        self.doc = ""
+        self.doc = None
         self.doc_version = 0
 
     def receive_file(self):
@@ -23,13 +25,16 @@ class Client(object):
             response += chunk
 
         # Decode and update current document version
-        self.doc = response.decode("utf-8", errors="ignore")
-        self.doc_version += 1 # TODO: obtain version from the received data 
+        data = response.decode("utf-8", errors="ignore").split(DELIMITER)
+        self.doc_version = int(data[0].strip("VERSION: "))
+        self.doc = data[1:]
+        self.display_file()
 
-    def display_file(self, text_widget):
+    def display_file(self):
         # clear the tkinter window, show contents of the doc
-        text_widget.delete("1.0", tk.END)
-        text_widget.insert("1.0", "".join(self.doc))
+        self.text_widget.delete("1.0", tk.END)
+        self.text_widget.insert("1.0", "".join(self.doc))
+        print("displayed file")
 
     def write_file(self, filename="client_file.txt"):
         with open(filename, 'w') as f:
@@ -41,6 +46,7 @@ class Client(object):
             with open(filename, 'r') as f:
                 # obtains a list of lines as strings in a file (includes terminating \n)
                 self.doc = f.readlines()
+                self.display_file()
         except FileNotFoundError:
             print("File not found...")
 
@@ -62,9 +68,12 @@ class GUI(object):
         self.text_widget = tk.Text(self.window)
         self.text_widget.pack(expand=True, fill="both")
 
+        self.client.text_widget = self.text_widget
+
         # bind key press to event handler
         self.text_widget.bind("<Key>", self.key_handler)
-        # start the GUI update
+
+
     def run(self):
         self.window.mainloop()
 
@@ -75,7 +84,6 @@ class GUI(object):
 
         if event.char and len(event.char) == 1:
             # get current index of the insert cursor in the window
-            global text_widget
             line, idx = self.text_widget.index(tk.INSERT).split('.')
 
             # construct operation packet
@@ -87,9 +95,8 @@ class GUI(object):
             }
 
             # send operation through the socket
-            global client_socket
-            json_str = json.dumps(op) + "\n" # adding terminating character
-            client_socket.sendall(json_str.encode())
+            json_str = json.dumps(op) + DELIMITER # adding terminating character
+            self.client.client_socket.sendall(json_str.encode())
 
 def main():
     parser = argparse.ArgumentParser()
@@ -105,8 +112,8 @@ def main():
     client = Client(HOST, PORT)
     screen = GUI(client)
     client.open_file()
-    client.display_file(screen.get_text_widget())
     screen.run()
+    
 
 if __name__ == "__main__":
     main()

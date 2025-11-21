@@ -2,10 +2,12 @@ import socket
 import threading
 import argparse
 
+DELIMITER = "\u001D"
+
 class Server(object):
     def __init__(self, host, port):
         # define instance vars
-        self.doc = ""
+        self.doc = None
         self.doc_ver = 0
         self.clients = []
         self.data_lock = threading.Lock()
@@ -56,6 +58,12 @@ class Server(object):
                 self.doc = f.readlines()
         except FileNotFoundError:
             print("File not found...")
+
+    def send_file(self, client_socket):
+        header = f"VERSION: {self.doc_ver}"
+        content = DELIMITER.join(self.doc)
+        data = header + DELIMITER + content
+        client_socket.sendall(data.encode())
 
 
 def main():
