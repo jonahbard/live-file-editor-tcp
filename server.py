@@ -76,13 +76,36 @@ class Server(object):
         data = header + DELIMITER + content
         client_socket.sendall(data.encode())
 
+    def insert_char(self, line, idx, char):
+        self.doc[line - 1] = self.doc[line - 1][:idx] + char + self.doc[line - 1][idx:]
+
+    def do_enter(self, line, idx):
+        self.doc.insert(line, "") # insert new line
+        self.doc[line-1] = self.doc[line-1][:idx] + "\n" # add newline char to current line and split it
+        self.doc[line] = self.doc[line-1][idx + 1:]
+    
+    def remove_char(self, line, idx):
+        if idx < 0:
+            self.doc.pop(line-1) # remove current line
+            self.doc[line-2] = self.doc[line-2][:-1] # remove newline char on prev line
+            return
+        self.doc[line - 1] = self.doc[line - 1][:idx] + self.doc[line - 1][idx + 1:]
+
     def process_op(self, op):
         line = int(op["line"])
         idx = int(op["idx"])
+        print("Inserting character into the doc...")
         if op["char"].lower() not in ["return", "backspace", "space"]:
-            print("Inserting character into the doc...")
-            self.doc[line - 1] = self.doc[line - 1][:idx] + op["char"] + self.doc[line - 1][idx:]
-        # TODO: handle enter and backspace
+            # insert normal characters
+            self.insert_char(line, idx, op["char"])
+        if op["char"].lower() == "return":
+            # insert newline character
+            self.do_enter(line, idx)
+        if op["char"].lower() == "space":
+            # insert space
+            self.insert_char(line, idx, " ")
+        if op["char"].lower() == "backspace":
+            self.remove_char(line, idx-1)
 
         # increment version
         self.doc_ver += 1
