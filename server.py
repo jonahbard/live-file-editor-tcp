@@ -77,22 +77,37 @@ class Server(object):
         data = header + DELIMITER + content
         self.clients[client_id].sendall(data.encode())
 
-    def insert_char(self, line, idx, char):
+    def insert_char(self, line, idx, char, client_id):
         self.doc[line - 1] = self.doc[line - 1][:idx] + char + self.doc[line - 1][idx:]
+        self.client_cursors[client_id] = str(line) + "." + str(idx+1)
 
-    def do_enter(self, line, idx):
+    def do_enter(self, line, idx, client_id):
         self.doc.insert(line, "") # insert new line
         self.doc[line] = self.doc[line-1][idx:]
         self.doc[line-1] = self.doc[line-1][:idx] + "\n" # add newline char to current line and split it
+        
+        # update cursors    
+        self.client_cursors[client_id] = str(line+1) + "." + str(0)
+        for key in self.client_cursors.keys():
+                l, i = self.client_cursors[key].split(".")
+                if int(l) > line+1:
+                    self.client_cursors[key] = str(int(l)+1) + "." + str(i) 
 
-    def remove_char(self, line, idx):
+    def remove_char(self, line, idx, client_id):
         if idx < 0:
             if line == 1:
                 return
+            self.client_cursors[client_id] = str(line-1) + "." + str(len(self.doc[line-2])-1)
+            self.doc[line-2] = self.doc[line-2][:-1] + self.doc[line-1] # remove newline char on prev line and add remains of the next line
             self.doc.pop(line-1) # remove current line
-            self.doc[line-2] = self.doc[line-2][:-1] # remove newline char on prev line
+
+            for key in self.client_cursors.keys():
+                l, i = self.client_cursors[key].split(".")
+                if int(l) >= line:
+                    self.client_cursors[key] = str(int(l)-1) + "." + str(i)    
             return
         self.doc[line - 1] = self.doc[line - 1][:idx] + self.doc[line - 1][idx + 1:]
+        self.client_cursors[client_id] = str(line) + "." + str(idx)
 
     def process_op(self, op):
         opcode = op["opcode"]
@@ -104,27 +119,22 @@ class Server(object):
             print("Inserting character into the doc...")
             if op["char"].lower() not in ["return", "backspace", "space"]:
                 # insert normal characters
-                self.insert_char(line, idx, op["char"])
-                self.client_cursors[client_id] = str(line) + "." + str(idx+1)
+                self.insert_char(line, idx, op["char"], client_id)
             if op["char"].lower() == "return":
                 # insert newline character
-                self.do_enter(line, idx)
-                self.client_cursors[client_id] = str(line+1) + "." + str(0)
+                self.do_enter(line, idx, client_id)
             if op["char"].lower() == "space":
                 # insert space
-                self.insert_char(line, idx, " ")
-                self.client_cursors[client_id] = str(line) + "." + str(idx+1)
+                self.insert_char(line, idx, " ", client_id)
             if op["char"].lower() == "backspace":
-                self.remove_char(line, idx-1)
-                if idx > 0:
-                    idx -= 1
-                self.client_cursors[client_id] = str(line) + "." + str(idx)
+                self.remove_char(line, idx-1, client_id)
             # increment version
             self.doc_ver += 1
             # send updated file to every client
             for client_id in self.clients.keys():
                 print("Sending file to clients...")
                 self.send_file(client_id)
+            print(self.doc)
 
         elif opcode == "CURSOR":
             match op["char"].lower():
@@ -139,10 +149,14 @@ class Server(object):
                 case "up":
                     if line > 1:
                         line -= 1
+                        if len(self.doc[line-1]) < idx:
+                            idx = len(self.doc[line-1])
                     self.client_cursors[client_id] = str(line) + "." + str(idx)
                 case "down":
                     if line < len(self.doc):
                         line += 1
+                        if len(self.doc[line-1]) < idx:
+                            idx = len(self.doc[line-1])
                     self.client_cursors[client_id] = str(line) + "." + str(idx)
             print("Sending cursor status to client...")
             self.send_file(client_id)
