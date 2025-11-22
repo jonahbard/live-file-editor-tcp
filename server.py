@@ -9,8 +9,6 @@ import random
 DELIMITER = "\u001D"
 TIMEOUT = 60 # SECONDS
 
-
-
 class Server(object):
     def __init__(self, host, port):
         # define instance vars
@@ -86,41 +84,81 @@ class Server(object):
         self.doc[line - 1] = self.doc[line - 1][:idx] + char + self.doc[line - 1][idx:]
         self.client_cursors[client_id] = str(line) + "." + str(idx+1)
 
+        # adjust other clients cursors if they're on the same line after the insertion index
+        for key in self.client_cursors.keys():
+            l, i = self.client_cursors[key].split(".")
+            if int(i) >= idx and key != client_id and int(l) == line:
+                self.client_cursors[key] = str(int(l)) + "." + str(int(i)+1)
+
     def do_enter(self, line, idx, client_id):
         self.doc.insert(line, "") # insert new line
         self.doc[line] = self.doc[line-1][idx:]
         self.doc[line-1] = self.doc[line-1][:idx] + "\n" # add newline char to current line and split it
-        
+
         # update cursors    
         self.client_cursors[client_id] = str(line+1) + "." + str(0)
+
+        # adjust other clients cursors if they're on or below the line that was added
         for key in self.client_cursors.keys():
                 l, i = self.client_cursors[key].split(".")
-                if int(l) > line:
-                    self.client_cursors[key] = str(int(l)+1) + "." + str(i) 
+                if key != client_id:
+                    if int(l) > line or (int(l) == line and int(i) < idx):
+                        self.client_cursors[key] = str(int(l)+1) + "." + str(i) 
+                    
+                    # if cursor is on the line after the inserted break, move and adjust index to previous current index - previous line length
+                    elif int(l) == line and int(i) > idx:
+                        self.client_cursors[key] = str(int(l)+1) + "." + str((int(i))-len(self.doc[line-1])+1)
+
 
     def remove_char(self, line, idx, client_id):
+
+        # check if we're deleting a line break
         if idx < 0:
+
+            # return if it's the first line
             if line == 1:
                 return
+            
+            # remove newline char on prev line and add remains of the next line
             self.client_cursors[client_id] = str(line-1) + "." + str(len(self.doc[line-2])-1)
-            self.doc[line-2] = self.doc[line-2][:-1] + self.doc[line-1] # remove newline char on prev line and add remains of the next line
-            self.doc.pop(line-1) # remove current line
 
+            previous_line_length = len(self.doc[line-2])
+            self.doc[line-2] = self.doc[line-2][:-1] + self.doc[line-1] 
+
+            # remove current line
+            self.doc.pop(line-1)
+
+            # adjust other clients cursors if they're below the line that was deleted
             for key in self.client_cursors.keys():
                 l, i = self.client_cursors[key].split(".")
-                if int(l) >= line:
-                    self.client_cursors[key] = str(int(l)-1) + "." + str(i)    
-            return
-        self.doc[line - 1] = self.doc[line - 1][:idx] + self.doc[line - 1][idx + 1:]
-        self.client_cursors[client_id] = str(line) + "." + str(idx)
+                if key != client_id:
+                    # if cursor is below the deleted line break, move it up one line
+                    if int(l) > line: 
+                        self.client_cursors[key] = str(int(l)-1) + "." + str(i)
+
+                    # if cursor is on the line after the deleted break, move and adjust index to previous line length + current index 
+                    elif int(l) == line:
+                        self.client_cursors[key] = str(int(l)-1) + "." + str(previous_line_length+(int(i))-1)
+        
+        else:
+            # delete character at given index
+            self.doc[line - 1] = self.doc[line - 1][:idx] + self.doc[line - 1][idx + 1:]
+            self.client_cursors[client_id] = str(line) + "." + str(idx)
+
+            # adjust other clients cursors if they're on the same line after the deletion in dex
+            for key in self.client_cursors.keys():
+                l, i = self.client_cursors[key].split(".")
+                if int(i) >= idx and key != client_id and int(l) == line:
+                    self.client_cursors[key] = str(int(l)) + "." + str(int(i)-1)
 
     def process_op(self, op):
         opcode = op["opcode"]
         client_id = op["id"]
-        ver = int(op["ver"])
+        ver = int(op["ver"]) #DELETE
         line = int(op["line"])
         idx = int(op["idx"])
-        if opcode == "INSERT":
+
+        if opcode == "MODIFY":
             print("Inserting character into the doc...")
             if op["char"].lower() not in ["return", "backspace", "space"]:
                 # insert normal characters

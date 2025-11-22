@@ -65,9 +65,7 @@ class Client(object):
             print("File not found...")
 
 class GUI(object):
-
     def __init__(self, client):
-        
         self.client = client
         # Gemini was used to develop this GUI code
         self.window = tk.Tk()
@@ -101,7 +99,7 @@ class GUI(object):
         if event.char and len(event.char) == 1 or event.keysym.lower() in ["backspace", "space", "delete", "return"]:
             # construct operation packet
             op = {
-                "opcode": "INSERT",
+                "opcode": "MODIFY",
                 "line": line,
                 "idx": idx,
                 "char": event.keysym,
