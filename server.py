@@ -109,7 +109,6 @@ class Server(object):
                     elif int(l) == line and int(i) > idx:
                         self.client_cursors[key] = str(int(l)+1) + "." + str((int(i))-len(self.doc[line-1])+1)
 
-
     def remove_char(self, line, idx, client_id):
 
         # check if we're deleting a line break
@@ -154,7 +153,6 @@ class Server(object):
     def process_op(self, op):
         opcode = op["opcode"]
         client_id = op["id"]
-        ver = int(op["ver"]) #DELETE
         line = int(op["line"])
         idx = int(op["idx"])
 
